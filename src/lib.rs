@@ -1,5 +1,5 @@
 use rand::prelude::*;
-use std::mem;
+use std::{f64::consts::PI, mem};
 use wgpu::{include_wgsl, util::DeviceExt};
 use winit::{event::WindowEvent, window::Window};
 
@@ -15,6 +15,7 @@ pub struct State {
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
     clear_color: wgpu::Color,
+    framecount: u64,
     pub size: winit::dpi::PhysicalSize<u32>,
 }
 
@@ -31,21 +32,30 @@ struct Instance {
     color: [f32; 3],
 }
 
-const RESOLUTION: usize = 64;
-const SIDE: f32 = 2.0 / (RESOLUTION as f32);
+const X_RES: i64 = 640;
+const Y_RES: i64 = 480;
+
+const OBS_DIST: i64 = 1000;
+const EYE_SEP: i64 = 300;
+
+const FAR: i64 = 250;
+const CLOSE: i64 = 200;
+
+const X_SIDE: f32 = 2.0 / (X_RES as f32);
+const Y_SIDE: f32 = 2.0 / (Y_RES as f32);
 
 const VERTICES: &[Vertex] = &[
     Vertex {
         position: [0.0, 0.0, 0.0],
     },
     Vertex {
-        position: [SIDE, 0.0, 0.0],
+        position: [X_SIDE, 0.0, 0.0],
     },
     Vertex {
-        position: [SIDE, SIDE, 0.0],
+        position: [X_SIDE, Y_SIDE, 0.0],
     },
     Vertex {
-        position: [0.0, SIDE, 0.0],
+        position: [0.0, Y_SIDE, 0.0],
     },
 ];
 
@@ -135,11 +145,11 @@ impl State {
 
         let num_indices = INDICES.len() as u32;
 
-        let mut instances = (0..RESOLUTION)
+        let instances = (0..Y_RES)
             .flat_map(|y| {
-                (0..RESOLUTION).map(move |x| {
+                (0..X_RES).map(move |x| {
                     let (x, y) = (x as f32, y as f32);
-                    let position = [-1.0 + x * SIDE, -1.0 + y * SIDE];
+                    let position = [-1.0 + x * X_SIDE, -1.0 + y * Y_SIDE];
 
                     Instance {
                         offset: position,
@@ -148,8 +158,6 @@ impl State {
                 })
             })
             .collect::<Vec<_>>();
-
-        instances[30].color = [1.0; 3];
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
@@ -219,6 +227,7 @@ impl State {
             instance_buffer,
             clear_color,
             size,
+            framecount: 0,
         }
     }
 
@@ -235,35 +244,65 @@ impl State {
         match event {
             WindowEvent::CursorMoved {
                 device_id: _,
-                position,
+                position: _,
                 modifiers: _,
-            } => {
-                self.clear_color.r = 0.5 * position.x / self.config.width as f64;
-                self.clear_color.b = 1.0 - position.y / self.config.height as f64;
-                true
-            }
+            } => true,
             _ => false,
         }
     }
 
     pub fn update(&mut self) {
-        'markov: for x in 0..RESOLUTION {
-            for y in 0..RESOLUTION {
-                let ix = x + RESOLUTION * y;
+        self.framecount += 1;
 
-                if self.instances[ix].color == [1.0; 3] {
-                    for x in [1, -1, RESOLUTION as i32, -(RESOLUTION as i32)]
-                        .map(|x| x + ix as i32)
-                        .into_iter()
-                        .filter(|&x| x >= 0 && x < (RESOLUTION * RESOLUTION) as i32)
-                    {
-                        let x = x as usize;
+        for y in 0..Y_RES {
+            let mut look: [i64; X_RES as usize] = [0; X_RES as usize];
 
-                        if self.instances[x].color == [0.0; 3] {
-                            self.instances[x].color = [1.0; 3];
-                            break 'markov;
-                        }
-                    }
+            for x in 0..X_RES {
+                look[x as usize] = x;
+            }
+
+            for x in 0..X_RES {
+                const DT: f64 = 500.0;
+
+                let radius = 100.0;
+
+                let ox = radius * (self.framecount as f64 / DT).sin();
+                let oy = radius * (self.framecount as f64 / DT).cos();
+
+                let xmid = X_RES / 2 + ox as i64;
+                let ymid = Y_RES / 2 + oy as i64;
+
+                let r = x.abs_diff(xmid) * x.abs_diff(xmid) + y.abs_diff(ymid) * y.abs_diff(ymid);
+
+                let z: i64 = if r <= 10000 {
+                    CLOSE
+                } else {
+                    FAR - ((FAR - CLOSE) as f64
+                        * (1.0 - (y.abs_diff(Y_RES / 2) as f64 * X_SIDE as f64 * PI).cos()))
+                        as i64
+                };
+
+                let sep = EYE_SEP * z / (z + OBS_DIST);
+                let left = x as i64 - sep / 2;
+                let right = left + sep;
+
+                if left >= 0 && right < X_RES {
+                    look[right as usize] = left;
+                }
+            }
+
+            let mut rng = StdRng::seed_from_u64(y as u64);
+
+            for x in 0..X_RES {
+                let offset = (X_RES * y) as usize;
+
+                if look[x as usize] == x {
+                    let x = x as usize;
+                    self.instances[offset + x as usize].color = [rng.gen_range(0.0..=1.0); 3]
+                } else {
+                    let x = x as usize;
+                    let lx = look[x] as usize;
+                    self.instances[offset + x].color = self.instances[offset + lx].color;
                 }
             }
         }
