@@ -1,4 +1,4 @@
-use markov::State;
+use stereo::State;
 
 use winit::{
     event::*,
