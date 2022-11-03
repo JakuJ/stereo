@@ -1,5 +1,8 @@
-use rand::prelude::*;
-use std::{f64::consts::PI, mem};
+use crate::constants::*;
+use crate::heightmap::Heightmap;
+
+use image::*;
+use std::mem;
 use wgpu::{include_wgsl, util::DeviceExt};
 use winit::{event::WindowEvent, window::Window};
 
@@ -14,8 +17,6 @@ pub struct State {
     num_indices: u32,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
-    clear_color: wgpu::Color,
-    framecount: u64,
     pub size: winit::dpi::PhysicalSize<u32>,
 }
 
@@ -31,15 +32,6 @@ struct Instance {
     offset: [f32; 2],
     color: [f32; 3],
 }
-
-const X_RES: i64 = 640;
-const Y_RES: i64 = 480;
-
-const OBS_DIST: i64 = 1000;
-const EYE_SEP: i64 = 300;
-
-const FAR: i64 = 250;
-const CLOSE: i64 = 200;
 
 const X_SIDE: f32 = 2.0 / (X_RES as f32);
 const Y_SIDE: f32 = 2.0 / (Y_RES as f32);
@@ -208,13 +200,6 @@ impl State {
             multiview: None,
         });
 
-        let clear_color = wgpu::Color {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            a: 1.0,
-        };
-
         Self {
             surface,
             device,
@@ -226,9 +211,7 @@ impl State {
             num_indices,
             instances,
             instance_buffer,
-            clear_color,
             size,
-            framecount: 0,
         }
     }
 
@@ -246,64 +229,48 @@ impl State {
             WindowEvent::CursorMoved {
                 device_id: _,
                 position: _,
-                modifiers: _,
+                ..
             } => true,
             _ => false,
         }
     }
 
-    pub fn update(&mut self) {
-        self.framecount += 1;
+    pub fn update(&mut self, pattern: &DynamicImage, heightmap: &Heightmap) {
+        let mut look: [usize; X_RES as usize] = [0; X_RES as usize];
+
+        let mut look_default: [usize; X_RES as usize] = [0; X_RES as usize];
+        for x in 0..X_RES {
+            look_default[x] = x;
+        }
 
         for y in 0..Y_RES {
-            let mut look: [i64; X_RES as usize] = [0; X_RES as usize];
+            look_default.clone_into(&mut look);
 
             for x in 0..X_RES {
-                look[x as usize] = x;
-            }
+                let z = NEAR as f32 + (NEAR - FAR) as f32 * heightmap.at(x, y);
 
-            for x in 0..X_RES {
-                const DT: f64 = 500.0;
-
-                let radius = 100.0;
-
-                let ox = radius * (self.framecount as f64 / DT).sin();
-                let oy = radius * (self.framecount as f64 / DT).cos();
-
-                let xmid = X_RES / 2 + ox as i64;
-                let ymid = Y_RES / 2 + oy as i64;
-
-                let r = x.abs_diff(xmid) * x.abs_diff(xmid) + y.abs_diff(ymid) * y.abs_diff(ymid);
-
-                let z: i64 = if r <= 10000 {
-                    CLOSE
-                } else {
-                    FAR - ((FAR - CLOSE) as f64
-                        * (1.0 - (y.abs_diff(Y_RES / 2) as f64 * X_SIDE as f64 * PI).cos()))
-                        as i64
-                };
-
-                let sep = EYE_SEP * z / (z + OBS_DIST);
+                let sep = (EYE_SEP * z / (z + OBS_DIST)) as i64;
                 let left = x as i64 - sep / 2;
-                let right = left + sep;
+                let right = (left + sep) as usize;
 
                 if left >= 0 && right < X_RES {
-                    look[right as usize] = left;
+                    look[right] = left as usize;
                 }
             }
 
-            let mut rng = StdRng::seed_from_u64(y as u64);
-
             for x in 0..X_RES {
-                let offset = (X_RES * y) as usize;
+                let offset = X_RES * y;
 
-                if look[x as usize] == x {
-                    let x = x as usize;
-                    self.instances[offset + x as usize].color = [rng.gen_range(0.0..=1.0); 3]
+                if look[x] == x {
+                    let (tex_w, tex_h) = pattern.dimensions();
+                    let rgba = pattern
+                        .get_pixel(x as u32 % tex_w, y as u32 % tex_h)
+                        .to_rgb()
+                        .0;
+                    self.instances[offset + x].color = rgba.map(|x| x as f32 / 255.0);
                 } else {
-                    let x = x as usize;
-                    let lx = look[x] as usize;
-                    self.instances[offset + x].color = self.instances[offset + lx].color;
+                    let seen = look[x] as usize;
+                    self.instances[offset + x].color = self.instances[offset + seen].color;
                 }
             }
         }
@@ -330,12 +297,12 @@ impl State {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[
-                    // This is what [[location(0)]] in the fragment shader targets
+                    // This is what @location(0) in the fragment shader targets
                     Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(self.clear_color),
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: true,
                         },
                     }),

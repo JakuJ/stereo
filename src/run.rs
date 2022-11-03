@@ -1,4 +1,5 @@
-use stereo::State;
+use crate::game::Game;
+use crate::rendering::*;
 
 use winit::{
     event::*,
@@ -11,10 +12,12 @@ pub async fn run() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
+    let mut game = Game::new();
     let mut state = State::new(&window).await;
 
     event_loop.run(move |event, _, control_flow| {
-        state.update();
+        game.update();
+        state.update(&game.pattern, &game.heightmap);
 
         match event {
             Event::WindowEvent {
@@ -43,6 +46,10 @@ pub async fn run() {
                     }
                 }
             }
+            Event::DeviceEvent {
+                event: DeviceEvent::MouseMotion { delta },
+                ..
+            } => game.on_mouse_move(delta.0, delta.1),
             Event::RedrawRequested(window_id) if window_id == window.id() => {
                 match state.render() {
                     Ok(_) => {}
