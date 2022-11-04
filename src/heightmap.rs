@@ -15,11 +15,11 @@ impl Heightmap {
         }
     }
 
-    pub fn at(self: &Self, x: usize, y: usize) -> f32 {
+    pub fn at(&self, x: usize, y: usize) -> f32 {
         self.pixels[x + y * self.width]
     }
 
-    pub fn update<F>(self: &mut Self, fun: F)
+    pub fn update<F>(&mut self, fun: F)
     where
         F: Fn(usize, usize) -> f32,
     {

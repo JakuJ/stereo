@@ -47,7 +47,7 @@ impl Game {
     }
 
     /// Update game state once per simulation frame.
-    pub fn update(self: &mut Self) {
+    pub fn update(&mut self) {
         // update timer
         let now = Instant::now();
         let delta = now.duration_since(self.last_tick);
@@ -88,7 +88,7 @@ impl Game {
         }
     }
 
-    pub fn on_mouse_move(self: &mut Self, dx: f64, dy: f64) {
+    pub fn on_mouse_move(&mut self, dx: f64, dy: f64) {
         self.position.x += dx;
         self.position.y -= dy;
     }

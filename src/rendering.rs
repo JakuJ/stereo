@@ -1,6 +1,7 @@
 use crate::constants::*;
 use crate::heightmap::Heightmap;
 
+use core::array;
 use image::*;
 use std::mem;
 use wgpu::{include_wgsl, util::DeviceExt};
@@ -225,26 +226,21 @@ impl State {
     }
 
     pub fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
+        matches!(
+            event,
             WindowEvent::CursorMoved {
                 device_id: _,
                 position: _,
                 ..
-            } => true,
-            _ => false,
-        }
+            }
+        )
     }
 
     pub fn update(&mut self, pattern: &DynamicImage, heightmap: &Heightmap) {
-        let mut look: [usize; X_RES as usize] = [0; X_RES as usize];
-
-        let mut look_default: [usize; X_RES as usize] = [0; X_RES as usize];
-        for x in 0..X_RES {
-            look_default[x] = x;
-        }
-
+        let look_default: [usize; X_RES] = array::from_fn(|i| i);
+        
         for y in 0..Y_RES {
-            look_default.clone_into(&mut look);
+            let mut look = look_default;
 
             for x in 0..X_RES {
                 let z = NEAR as f32 + (NEAR - FAR) as f32 * heightmap.at(x, y);
@@ -258,10 +254,10 @@ impl State {
                 }
             }
 
-            for x in 0..X_RES {
+            for (x, seen) in look.iter().enumerate() {
                 let offset = X_RES * y;
 
-                if look[x] == x {
+                if *seen == x {
                     let (tex_w, tex_h) = pattern.dimensions();
                     let rgba = pattern
                         .get_pixel(x as u32 % tex_w, y as u32 % tex_h)
@@ -269,8 +265,7 @@ impl State {
                         .0;
                     self.instances[offset + x].color = rgba.map(|x| x as f32 / 255.0);
                 } else {
-                    let seen = look[x] as usize;
-                    self.instances[offset + x].color = self.instances[offset + seen].color;
+                    self.instances[offset + x].color = self.instances[offset + look[x]].color;
                 }
             }
         }
