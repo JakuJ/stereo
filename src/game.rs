@@ -69,6 +69,16 @@ impl Game {
             }
         });
 
+        // update pattern
+        self.update_pattern();
+    }
+
+    pub fn on_mouse_move(&mut self, dx: f64, dy: f64) {
+        self.position.x += dx;
+        self.position.y -= dy;
+    }
+
+    fn update_pattern(&mut self) {
         let mut rng = rand::thread_rng();
 
         for y in 0..self.pattern.height() {
@@ -87,9 +97,10 @@ impl Game {
             }
         }
     }
+}
 
-    pub fn on_mouse_move(&mut self, dx: f64, dy: f64) {
-        self.position.x += dx;
-        self.position.y -= dy;
+impl Default for Game {
+    fn default() -> Self {
+        Self::new()
     }
 }
